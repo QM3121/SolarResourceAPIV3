@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Solar Resource Viewer (DC Output)</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.25/esri/themes/light/main.css" />
+  <script src="https://js.arcgis.com/4.25/"></script>
+  <style>
+    html, body, #viewDiv {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/Graphic"
+    ], function(Map, MapView, Graphic) {
+
+      const apiKey = "ZTxykdcgo6jCUJMv88T7JcKbmZGjIyBeWd4dAXY9";
+
+      const map = new Map({
+        basemap: "hybrid"  // Satellite with labels
+      });
+
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [-99.9, 31.0],  // Texas
+        zoom: 6
+      });
+
+      // PVWatts v6 system config
+      const system_capacity = 250000; // 250 MW (in kW)
+      const azimuth = 180;
+      const tilt = 30;
+      const array_type = 2;  // Single-axis tracker
+      const module_type = 1;
+      const losses = 10;
+
+      const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+      view.on("click", function(event) {
+        const lat = event.mapPoint.latitude;
+        const lon = event.mapPoint.longitude;
+
+        const url = `https://developer.nrel.gov/api/pvwatts/v6.json?` +
+          `api_key=${apiKey}&lat=${lat}&lon=${lon}` +
+          `&system_capacity=${system_capacity}` +
+          `&azimuth=${azimuth}&tilt=${tilt}` +
+          `&array_type=${array_type}` +
+          `&module_type=${module_type}&losses=${losses}`;
+
+        fetch(url)
+          .then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+          })
+          .then(data => {
+            if (data.outputs) {
+              const dcAnnual = data.outputs.dc_annual;
+              const dcMonthly = data.outputs.dc_monthly;
+              const solradAnnual = data.outputs.solrad_annual;
+
+              const monthlyStr = Array.isArray(dcMonthly)
+                ? dcMonthly.map((val, i) => `${monthNames[i]}: ${(val / 1000).toFixed(2)} MWh`).join("<br>")
+                : "N/A";
+
+              view.graphics.removeAll();
+
+              const marker = new Graphic({
+                geometry: event.mapPoint,
+                symbol: {
+                  type: "simple-marker",
+                  color: "yellow",
+                  size: "12px",
+                  outline: { color: "black", width: 1 }
+                },
+                popupTemplate: {
+                  title: `Solar DC Output @ ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+                  content: `
+                    <b>DC Annual Energy:</b> ${(dcAnnual / 1000).toFixed(2)} MWh<br/>
+                    <b>Annual Solar Irradiation:</b> ${solradAnnual.toFixed(2)} kWh/m²/day<br/><br/>
+                    <b>DC Monthly Output (MWh):</b><br/>${monthlyStr}
+                  `
+                }
+              });
+
+              view.graphics.add(marker);
+              view.popup.open({
+                location: event.mapPoint,
+                title: marker.popupTemplate.title,
+                content: marker.popupTemplate.content
+              });
+            } else {
+              alert("No solar data available for this location.");
+            }
+          })
+          .catch(err => {
+            console.error("Error:", err);
+            alert("Error retrieving solar data: " + err.message);
+          });
+      });
+    });
+  </script>
+</body>
+</html>
